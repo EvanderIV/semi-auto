@@ -4,7 +4,6 @@ let pingInterval;
 let lastPongReceived;
 let onPlayerJoined;
 let onPlayerLeft;
-let onReadyStateUpdate;
 let onPlayerInfoUpdate;
 let onGameStarting;
 let onRoomClosed;
@@ -23,61 +22,9 @@ function setupSocketEventHandlers() {
     });
     
     socket.on('roomClosed', () => {
-        document.getElementById('error-message').style.marginTop = "50vmin";
-        document.getElementById('error-message').style.color = "#FF0000";
         showError('Host has disconnected');
         if (onRoomClosed) {
             onRoomClosed();
-        }
-        
-        // Reset UI elements
-        document.getElementById('game-code').style.display = '';
-        document.getElementById('join-button').style.display = '';
-        document.getElementById('ready-button').style.display = 'none';
-        document.getElementById('ready-text').style.display = 'none';
-        
-        // Reset any player ready state
-        const readyBtn = document.getElementById('ready-button');
-        if (readyBtn) {
-            readyBtn.style.backgroundColor = '#AA4444';
-            readyBtn.classList.add('not-ready');
-            readyBtn.setAttribute('aria-label', 'Click to ready up');
-        }
-        
-        // Enable nickname and skin selection again
-        const nicknameInput = document.getElementById('nickname');
-        if (nicknameInput) nicknameInput.disabled = false;
-        const skinBackArrow = document.getElementById('skin-back');
-        const skinNextArrow = document.getElementById('skin-next');
-        if (skinBackArrow) skinBackArrow.classList.remove('disabled');
-        if (skinNextArrow) skinNextArrow.classList.remove('disabled');
-        
-        // Hide suit squares and reset them
-        const suitSquares = document.getElementById('suit-squares');
-        if (suitSquares) {
-            suitSquares.classList.remove('show');
-            // Return squares to grid
-            document.querySelectorAll('.suit-square').forEach(square => {
-                if (square.classList.contains('placed')) {
-                    square.classList.remove('placed');
-                    square.style.position = '';
-                    square.style.left = '';
-                    square.style.top = '';
-                }
-            });
-        }
-        
-        // Hide directional arrows by removing game-joined class
-        const root = document.getElementById('root');
-        if (root) {
-            root.classList.remove('game-joined');
-        }
-    });
-
-    // Add ready state update handler in a single location
-    socket.on('ready-state-update', ({ name, ready }) => {
-        if (onReadyStateUpdate) {
-            onReadyStateUpdate(name, ready);
         }
     });
 
@@ -87,6 +34,7 @@ function setupSocketEventHandlers() {
             onPlayerInfoUpdate(oldName, newName, newSkin);
         }
     });
+
     // Add game starting handler
     socket.on('gameStarting', () => {
         console.log('Received gameStarting event');
@@ -229,13 +177,7 @@ function performJoin(roomCode, playerName, skinId) {
         // Hide join UI elements
         document.getElementById('game-code').style.display = 'none';
         document.getElementById('join-button').style.display = 'none';
-        document.getElementById('ready-button').style.display = 'inline-flex';
-        document.getElementById('ready-text').style.display = 'flex';
-        const suitSquares = document.getElementById('suit-squares');
         const root = document.getElementById('root');
-        if (suitSquares) {
-            suitSquares.classList.add('show');
-        }
         if (root) {
             root.classList.add('game-joined');
         }
@@ -252,12 +194,6 @@ function performJoin(roomCode, playerName, skinId) {
         document.getElementById('ready-button').style.display = 'none';
         document.getElementById('ready-text').style.display = 'none';
     });
-}
-
-function setReadyState(ready) {
-    if (socket && socket.connected) {
-        socket.emit('ready-state-change', { ready });
-    }
 }
 
 function showError(message) {
@@ -289,13 +225,21 @@ function updateGameState(state) {
     }
 }
 
+function updatePlayerInfo(data) {
+    console.log('NetworkManager: Sending player info update:', data);
+    if (socket && socket.connected) {
+        socket.emit('updatePlayerInfo', data);
+    } else {
+        console.error('NetworkManager: Cannot send update - socket not connected');
+    }
+}
+
 // Export functions and event handlers
 window.networkManager = {
     getSocket: () => socket,
     getCallbacks: () => ({
         onPlayerJoined,
         onPlayerLeft,
-        onReadyStateUpdate,
         onPlayerInfoUpdate,
         onGameStarting,
         onRoomClosed,
@@ -304,34 +248,21 @@ window.networkManager = {
     }),
     setOnPlayerJoined: (callback) => { onPlayerJoined = callback; },
     setOnPlayerLeft: (callback) => { onPlayerLeft = callback; },
-    setOnReadyStateUpdate: (callback) => { onReadyStateUpdate = callback; },
     setOnPlayerInfoUpdate: (callback) => { onPlayerInfoUpdate = callback; },
     setOnGameStarting: (callback) => { onGameStarting = callback; },
     setOnRoomClosed: (callback) => { onRoomClosed = callback; },
     connectToServer,
     createRoom,
     joinRoom,
-    setReadyState,
-    updatePlayerInfo: (data) => {
-        console.log('NetworkManager: Sending player info update:', data);
-        if (socket && socket.connected) {
-            socket.emit('updatePlayerInfo', data);
-        } else {
-            console.error('NetworkManager: Cannot send update - socket not connected');
-        }
-    },
+    updatePlayerInfo,
     setCallbacks: (callbacks) => {
-        // Set all callbacks
         onPlayerJoined = callbacks.onPlayerJoined;
         onPlayerLeft = callbacks.onPlayerLeft;
-        onReadyStateUpdate = callbacks.onReadyStateUpdate;
         onPlayerInfoUpdate = callbacks.onPlayerInfoUpdate;
         onGameStarting = callbacks.onGameStarting;
         onRoomClosed = callbacks.onRoomClosed;
         onTapEvent = callbacks.onTapEvent;
         onGameStateUpdate = callbacks.onGameStateUpdate;
-        
-        // After setting callbacks, re-setup event handlers to ensure they're using the new callbacks
         setupSocketEventHandlers();
     },
     sendTap,

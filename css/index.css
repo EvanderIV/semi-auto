@@ -3,6 +3,7 @@
 	src: url("../fonts/m6x11plus.ttf");
 }
 
+
 .root {
 	height: 100%;
 	width: 100%;
@@ -210,12 +211,6 @@ body.darkable.darkmode {
 	color: #ffffff;
 }
 
-#ready-button:active {
-	border: 2px solid #000000;
-	background-color: #33CCFF;
-	color: #ffffff;
-}
-
 #join-button:disabled,
 #join-button[disabled] {
 	border: 2px solid #999999;
@@ -231,6 +226,34 @@ body.darkable.darkmode {
 	border: 2px solid #222222;
 	background-color: #666666;
 	color: #FFFFFF;
+}
+
+#start-game-button {
+    margin: 20px auto;
+    display: none;
+    padding: 10px 20px;
+    font-size: 1.5rem;
+    border: 2px solid #0088CC;
+    background-color: #44AA44;
+    color: #ffffff;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+#start-game-button:hover {
+    background-color: #55BB55;
+}
+
+#start-game-button.darkmode {
+    color: #FFFFFF;
+    border-color: #222222;
+}
+
+#start-game-button.retro {
+    font-family: "blocky";
+    font-size: 2rem;
+    border-radius: 0;
 }
 
 #ready-button {

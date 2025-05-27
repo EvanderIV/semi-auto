@@ -304,8 +304,6 @@ if (isMobileUser) {
     for (let i = 0; i < desktopElems.length; i++) {
         desktopElems[i].classList.add("hidden");
     }
-    const sqrElement = document.getElementById("sqr");
-    if (sqrElement) sqrElement.classList.add("ship-display");
 } else {
     let mobileElems = document.getElementsByClassName("mobile-only");
     for (let i = 0; i < mobileElems.length; i++) {
@@ -323,13 +321,39 @@ if (isMobileUser) {
 // Global player management
 let players = [];
 let isHost = false;
+let gameStarting = false;
+let gameStarted = false;
+let gameEndTimeout = null;
+const GAME_DURATION = 60000; // 60 seconds
 
 function addPlayer(name, skinId, isHostPlayer = false) {
     if (isHostPlayer) {
         isHost = true;
-        return; 
+        const startButton = document.getElementById('start-game-button');
+        if (startButton) {
+            startButton.style.display = 'block';
+            startButton.addEventListener('click', () => {
+                if (players.length >= 0) { // Allow starting with just the host
+                    if (typeof networkManager !== 'undefined') {
+                        socket.emit('gameStart');  // Emit the gameStart event directly
+                        startGame();
+                    } else {
+                        console.error("networkManager not available for starting game");
+                    }
+                } else {
+                    const errorMsgElement = document.getElementById('error-message');
+                    if(errorMsgElement) {
+                        errorMsgElement.textContent = "Error starting game";
+                        errorMsgElement.style.display = 'block';
+                        setTimeout(() => { errorMsgElement.style.display = 'none'; }, 3000);
+                    }
+                }
+            });
+            updateStartButtonState();  // Initialize button state
+        }
+        return;
     }
-    players.push({ name, skinId, ready: false });
+    players.push({ name, skinId });
     updatePlayerList();
 }
 
@@ -354,22 +378,17 @@ function updatePlayerList() {
         const playerName = document.createElement('span');
         playerName.textContent = player.name;
         
-        const readyCheckbox = document.createElement('div');
-        readyCheckbox.className = 'ready-checkbox ' + (player.ready ? 'checked' : '');
-        readyCheckbox.innerHTML = player.ready ? '&check;' : '';
-        
         playerItem.appendChild(boatImg);
         playerItem.appendChild(playerName);
-        playerItem.appendChild(readyCheckbox);
         playerList.appendChild(playerItem);
     });
 }
 
-function addPlayerToList(name, skinId, ready = false) {
+function addPlayerToList(name, skinId) {
     const playerList = document.getElementById('player-list');
     if (!playerList) return;
     
-    players.push({ name, skinId, ready });
+    players.push({ name, skinId });
     updatePlayerList();
     
     const playerItem = playerList.querySelector(`[data-name="${name}"]`);
@@ -437,29 +456,27 @@ function updatePlayerCount() {
 
 
 if (typeof networkManager !== 'undefined') {
-    networkManager.setCallbacks({
-        onPlayerJoined: (name, skinId, ready) => {
-            addPlayerToList(name, skinId, ready);
+    networkManager.setCallbacks({        onPlayerJoined: (name, skinId) => {
+            addPlayerToList(name, skinId);
             updatePlayerCount();
+            
+            // Enable start button for host if enough players
+            if (isHost) {
+                const startButton = document.getElementById('start-game-button');
+                if (startButton) {
+                    startButton.disabled = !canStartGame();
+                }
+            }
         },
         onPlayerLeft: (name) => {
             removePlayerFromList(name);
             updatePlayerCount();
-            if (countdownTimer) {
-                cancelCountdown();
-            }
-        },
-        onReadyStateUpdate: (name, ready) => {
-            const player = players.find(p => p.name === name);
-            if (player) {
-                player.ready = ready;
-                updatePlayerList();
-                if (isHost) {
-                    if (checkAllPlayersReady() && players.length > 1) { // Ensure there's more than just the host
-                        startCountdown();
-                    } else if (!ready) {
-                        cancelCountdown();
-                    }
+            
+            // Disable start button for host if not enough players
+            if (isHost) {
+                const startButton = document.getElementById('start-game-button');
+                if (startButton) {
+                    startButton.disabled = !canStartGame();
                 }
             }
         },
@@ -594,6 +611,35 @@ function getRandomCountdownSound() {
     return selectedSound;
 }
 
+let takenPFPs = [];
+function getRandomPFP() {
+    // Array of all possible profile picture paths
+    const allPFPs = [
+        './assets/pfp/pfp_1.png',
+        './assets/pfp/pfp_2.png',
+        './assets/pfp/pfp_3.png',
+        './assets/pfp/pfp_4.png',
+        './assets/pfp/pfp_5.png',
+        './assets/pfp/pfp_6.png',
+        './assets/pfp/pfp_7.png',
+        './assets/pfp/pfp_8.png'
+    ];
+    
+    // Filter out already taken PFPs
+    let availablePFPs = allPFPs.filter(pfp => !takenPFPs.includes(pfp));
+    
+    // If all PFPs are taken, reset the taken list and use all PFPs
+    if (availablePFPs.length === 0) {
+        takenPFPs = [];
+        availablePFPs = allPFPs;
+    }
+    
+    // Select a random PFP from available ones
+    const selectedPFP = availablePFPs[Math.floor(Math.random() * availablePFPs.length)];
+    takenPFPs.push(selectedPFP);
+    return selectedPFP;
+}
+
 function getRandomStartSound() {
     const startSounds = [ // Corrected variable name
         './assets/audio/game_start_1.mp3', './assets/audio/game_start_2.mp3',
@@ -604,7 +650,7 @@ function getRandomStartSound() {
 
 function generateRoomCode() {
     const letters = 'ABCDEFGHJKLMNPQRSTUWXYZ';
-    const badWords = ['FUCK', 'FVCK', 'SHIT', 'DAMN', 'CUNT', 'DICK', 'COCK', 'TWAT', 'CRAP'];
+    const badWords = ['FUCK', 'FVCK', 'SHIT', 'DAMN', 'CUNT', 'DICK', 'COCK', 'TWAT', 'CRAP','STFU'];
     while (true) {
         let code = '';
         for (let i = 0; i < 4; i++) {
@@ -705,48 +751,6 @@ if (themePicker) {
 
 let currentPlayerName = cookies.nickname || getRandomSillyName();
 
-let nextSkinBtn = document.getElementById("skin-next"); // Renamed for clarity
-if (nextSkinBtn) {
-    nextSkinBtn.addEventListener('click', function(event) {
-        if (isReady) { event.preventDefault(); return; }    
-        skin++;
-        if (skin > SKIN_COUNT) skin = 1; // Use > SKIN_COUNT for wrap around
-        setCookie("skin", skin.toString());
-        const skinIdEl = document.getElementById("skin-id");
-        if (skinIdEl) skinIdEl.innerHTML = "Skin #" + skin;
-        
-        ['ur', 'ul', 'll', 'lr'].forEach(suffix => {
-            const boatImg = document.getElementById(`boat_${suffix}`);
-            if (boatImg) boatImg.src = `./assets/boats/${skin}/${suffix}.png`;
-        });
-        
-        if (typeof networkManager !== 'undefined') {
-            networkManager.updatePlayerInfo({ oldName: currentPlayerName, newSkin: skin });
-        }
-    });
-}
-
-let backSkinBtn = document.getElementById("skin-back"); // Renamed for clarity
-if (backSkinBtn) {
-    backSkinBtn.addEventListener('click', function(event) {
-        if (isReady) { event.preventDefault(); return; }
-        skin--;
-        if (skin < 1) skin = SKIN_COUNT;
-        setCookie("skin", skin.toString());
-        const skinIdEl = document.getElementById("skin-id");
-        if (skinIdEl) skinIdEl.innerHTML = "Skin #" + skin;
-
-        ['ur', 'ul', 'll', 'lr'].forEach(suffix => {
-            const boatImg = document.getElementById(`boat_${suffix}`);
-            if (boatImg) boatImg.src = `./assets/boats/${skin}/${suffix}.png`;
-        });
-        
-        if (typeof networkManager !== 'undefined') {
-            networkManager.updatePlayerInfo({ oldName: currentPlayerName, newSkin: skin });
-        }
-    });
-}
-
 let nicknameInput = document.getElementById('nickname');
 if (nicknameInput) {
     nicknameInput.value = currentPlayerName; // Set from already initialized currentPlayerName
@@ -832,335 +836,114 @@ if (!isMobileUser) {
     }
 }
 
-let isReady = false;
-const readyButton = document.getElementById('ready-button');
-const skinBackArrow = document.getElementById('skin-back'); // Use consistent naming with other btn vars
-const skinNextArrow = document.getElementById('skin-next');
-
-if (readyButton) {
-    readyButton.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            if (this.getAttribute('aria-disabled') === 'true') return;
-            this.click();
-        }
-    });
-
-    readyButton.addEventListener('click', function() {
-        if (this.getAttribute('aria-disabled') === 'true') return;
-        
-        // Ensure boatSections and placedSuits are defined (they are at global scope)
-        if (typeof boatSections !== 'undefined' && typeof placedSuits !== 'undefined' && boatSections.length === placedSuits.size) {
-            isReady = !isReady;
-            this.style.backgroundColor = isReady ? '#44AA44' : '#AA4444';
-            this.classList.toggle('not-ready', !isReady);
-            this.setAttribute('aria-label', isReady ? 'Click to unready' : 'Click to ready up');
-            
-            if (skinBackArrow) skinBackArrow.classList.toggle('disabled', isReady);
-            if (skinNextArrow) skinNextArrow.classList.toggle('disabled', isReady);
-            if (nicknameInput) nicknameInput.disabled = isReady;
-            
-            document.querySelectorAll('.suit-square').forEach(square => {
-                square.style.pointerEvents = isReady ? 'none' : 'auto';
-                square.style.opacity = isReady ? '0.7' : '1';
-            });
-            
-            if (typeof networkManager !== 'undefined') networkManager.setReadyState(isReady);
-            
-            if (!isReady && countdownTimer) { 
-                cancelCountdown();
-            }
-        } else {
-             const errorMsgElement = document.getElementById('error-message');
-             if(errorMsgElement) {
-                errorMsgElement.textContent = "All ship sections must be placed before readying up!";
-                errorMsgElement.style.display = 'block';
-                setTimeout(() => { errorMsgElement.style.display = 'none';}, 3000);
-             }
-        }
-    });
-    readyButton.setAttribute('aria-label', 'Click to ready up');
-    // Initial state is disabled, will be enabled by updateReadyButtonState
-    readyButton.setAttribute('aria-disabled', 'true');
+// Update host controls
+function canStartGame() {
+    return players.length >= 0; // Allow starting with just the host
 }
 
-
-function updateReadyButtonState() {
-    const readyBtn = document.getElementById('ready-button');
-    if (!readyBtn) return;
-
-    readyBtn.setAttribute('aria-disabled', 'false');
-    if (!isReady) {
-        readyBtn.classList.remove('not-ready');
-        readyBtn.style.backgroundColor = '#AA4444';
-        readyBtn.setAttribute('aria-label', 'Click to ready up');
+function updateStartButtonState() {
+    if (!isHost) return;
+    
+    const startButton = document.getElementById('start-game-button');
+    if (startButton) {
+        startButton.disabled = !canStartGame();
     }
 }
 
-let darkModeSwitchDesktop = document.getElementById("dark-mode-toggle-desktop");
+function startGame() {
+    gameStarted = true;
+    
+    // Hide UI elements
+    const nicknameInput = document.getElementById('nickname');
+    const settingsButton = document.getElementById('settings-button');
+    const settingsDiv = document.getElementById('settings-div');
+    const startGameButton = document.getElementById('start-game-button');
 
-function toggleDarkMode(isDark) { 
-    darkMode = isDark;
-    let darkableElems = document.getElementsByClassName("darkable");
-    for (let i = 0; i < darkableElems.length; i++) {
-        if (isDark) darkableElems[i].classList.add("darkmode");
-        else darkableElems[i].classList.remove("darkmode");
+    if (nicknameInput) nicknameInput.style.display = 'none';
+    if (startGameButton) startGameButton.style.display = 'none';
+    if (settingsButton) settingsButton.style.display = 'none';
+    if (settingsDiv) settingsDiv.style.display = 'none';
+
+    // Start background music and timer
+    if (isHost) {
+        playBackgroundMusic('./assets/audio/game_music.mp3', 0.4, musicVolume);
+        startGameTimer();
     }
     
-    const sqrElement = document.getElementById("sqr");
-    if (sqrElement) {
-        // Reset classes carefully to preserve base layout classes
-        sqrElement.className = sqrElement.className.replace(/ship-display-[\w-]+darkmode/g, '').replace(/ship-display-(retro|modern|red)(?!-darkmode)/g, '');
-        if (isDark) {
-            sqrElement.classList.add("ship-display-" + theme + "-darkmode");
-        } else {
-            sqrElement.classList.add("ship-display-" + theme);
-        }
-    }
-    setCookie("darkMode", isDark ? "1" : "0");
+    // Show tap instructions
+    const instructions = document.createElement('div');
+    instructions.className = 'tap-instructions darkable';
+    instructions.textContent = isMobileUser ? 'Tap anywhere to play!' : 'Watch your friends tap!';
+    document.body.appendChild(instructions);
+    setTimeout(() => instructions.remove(), 3000);
 }
 
-if (darkModeSwitchDesktop) {
-    if (cookies.darkMode === "1") { 
-        darkModeSwitchDesktop.checked = true;
-        if (!darkMode) toggleDarkMode(true); // Ensure state is applied if not already
-    }
-    darkModeSwitchDesktop.addEventListener('change', function(event) {
-        toggleDarkMode(event.target.checked);
-        if (darkModeSwitch) darkModeSwitch.checked = event.target.checked;
-    });
-}
-// Apply initial dark mode if only mobile switch exists and cookie is set
-if (cookies.darkMode === "1" && !darkModeSwitchDesktop && darkModeSwitch && !darkModeSwitch.checked) {
-    darkModeSwitch.checked = true;
-    toggleDarkMode(true);
-}
-
-
-const suitSquares = document.querySelectorAll('.suit-square');
-const boatSections = document.querySelectorAll('.playerBoat');
-const placedSuits = new Map();
-let isDragging = false;
-let currentSquare = null;
-let offsetX = 0, offsetY = 0;
-let originalPosition = null;
-
-function updateGridVisibility() {
-    const suitSquaresContainer = document.getElementById('suit-squares');
-    if (!suitSquaresContainer) return;
-    // This logic might need review: if boatSections is empty, placedSuits.size will also be 0.
-    const allPlaced = (boatSections.length > 0 && placedSuits.size === boatSections.length);
-    if (allPlaced) {
-        suitSquaresContainer.classList.add('empty');
-    } else {
-        suitSquaresContainer.classList.remove('empty');
-    }
-}
-
-function resetSquarePosition(square, originalPosData) {
-    square.classList.remove('placed');
-    square.style.position = ''; // Reset to default CSS positioning
-    square.style.left = '';
-    square.style.top = '';
-    square.style.transition = 'all 0.3s ease';
-
-    // Attempt to return to original parent if it was moved
-    if (originalPosData && originalPosData.parent && originalPosData.parent !== square.parentElement) {
-        originalPosData.parent.appendChild(square);
-    }
-    // More specific reset logic might be needed depending on initial layout (e.g., CSS Grid)
-}
-
-
-if (suitSquares.length > 0 && boatSections.length > 0) {
-    suitSquares.forEach(square => {
-        square.addEventListener('touchstart', (e) => {
-            if (isReady) { e.preventDefault(); return; }
-            isDragging = true;
-            currentSquare = square;
-            const touch = e.touches[0];
-            const rect = square.getBoundingClientRect();
-            offsetX = touch.clientX - rect.left;
-            offsetY = touch.clientY - rect.top;
-            originalPosition = { left: rect.left, top: rect.top, parent: square.parentElement };
-            square.style.transition = 'none';
-            square.style.zIndex = '1000';
-            square.style.opacity = '0.8';
-        });
-
-        square.addEventListener('touchmove', (e) => {
-            if (!isDragging || !currentSquare) return;
-            e.preventDefault();
-            const touch = e.touches[0];
-            currentSquare.style.position = 'fixed';
-            currentSquare.style.left = `${touch.clientX - offsetX}px`;
-            currentSquare.style.top = `${touch.clientY - offsetY}px`;
-
-            const squareRect = currentSquare.getBoundingClientRect();
-            const squareCenter = { x: squareRect.left + squareRect.width / 2, y: squareRect.top + squareRect.height / 2 };
-            let closestSection = null;
-            let minDistance = Infinity;
-            boatSections.forEach(section => {
-                section.style.opacity = '1';
-                const sectionRect = section.getBoundingClientRect();
-                const sectionCenter = { x: sectionRect.left + sectionRect.width / 2, y: sectionRect.top + sectionRect.height / 2 };
-                const distance = Math.hypot(squareCenter.x - sectionCenter.x, squareCenter.y - sectionCenter.y);
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    closestSection = section;
+if (typeof networkManager !== 'undefined') {
+    networkManager.setCallbacks({
+        onPlayerJoined: (name, skinId) => {
+            addPlayerToList(name, skinId);
+            updatePlayerCount();
+            
+            // Enable start button for host if enough players
+            if (isHost) {
+                const startButton = document.getElementById('start-game-button');
+                if (startButton) {
+                    startButton.disabled = !canStartGame();
                 }
-            });
-            if (closestSection && minDistance < 100) closestSection.style.opacity = '0.7';
-        });
-    });
-
-    document.addEventListener('touchend', (e) => { 
-        if (!isDragging || !currentSquare) return;
-        const squareRect = currentSquare.getBoundingClientRect();
-        let isPlacedSuccessfully = false; // Renamed for clarity
-        const squareCenter = { x: squareRect.left + squareRect.width / 2, y: squareRect.top + squareRect.height / 2 };
-        let closestTargetSection = null; // Renamed for clarity
-        let minDistanceToTarget = Infinity;
-        let closestTargetRect = null;
-        
-        boatSections.forEach(section => {
-            const sectionRect = section.getBoundingClientRect();
-            const sectionCenter = { x: sectionRect.left + sectionRect.width / 2, y: sectionRect.top + sectionRect.height / 2 };
-            const distance = Math.hypot(squareCenter.x - sectionCenter.x, squareCenter.y - sectionCenter.y);
-            if (distance < minDistanceToTarget) {
-                minDistanceToTarget = distance;
-                closestTargetSection = section;
-                closestTargetRect = sectionRect;
             }
-        });
-
-        if (closestTargetSection && minDistanceToTarget < 100) { 
-            isPlacedSuccessfully = true;
-            const suitToPlace = currentSquare.dataset.suit;
-            const targetSectionId = closestTargetSection.id;
-
-            const suitCurrentlyInTarget = placedSuits.get(targetSectionId);
-            const previousSectionIdOfSuitToPlace = Array.from(placedSuits.entries()).find(([,s]) => s === suitToPlace)?.[0];
-
-            // If target is occupied by a different suit
-            if (suitCurrentlyInTarget && suitCurrentlyInTarget !== suitToPlace) {
-                const squareOfDisplacedSuit = document.querySelector(`.suit-square[data-suit="${suitCurrentlyInTarget}"]`);
-                if (squareOfDisplacedSuit) {
-                    if (previousSectionIdOfSuitToPlace) { // Move displaced suit to old spot of current square
-                        const oldSectionElement = document.getElementById(previousSectionIdOfSuitToPlace);
-                        if (oldSectionElement) {
-                            const oldRect = oldSectionElement.getBoundingClientRect();
-                            squareOfDisplacedSuit.style.position = 'fixed';
-                            squareOfDisplacedSuit.style.left = `${oldRect.left + (oldRect.width - squareOfDisplacedSuit.offsetWidth) / 2}px`;
-                            squareOfDisplacedSuit.style.top = `${oldRect.top + (oldRect.height - squareOfDisplacedSuit.offsetHeight) / 2}px`;
-                            placedSuits.set(previousSectionIdOfSuitToPlace, suitCurrentlyInTarget);
-                            squareOfDisplacedSuit.classList.add('placed');
-                        } else { resetSquarePosition(squareOfDisplacedSuit, null); } // Fallback
-                    } else { // currentSquare was unplaced, so reset displaced one
-                        resetSquarePosition(squareOfDisplacedSuit, null); // Pass null if no specific original pos data for it
+        },
+        onPlayerLeft: (name) => {
+            removePlayerFromList(name);
+            updatePlayerCount();
+            
+            // Disable start button for host if not enough players
+            if (isHost) {
+                const startButton = document.getElementById('start-game-button');
+                if (startButton) {
+                    startButton.disabled = !canStartGame();
+                }
+            }
+        },
+        onPlayerInfoUpdate: (oldName, newName, newSkinId) => {
+            const player = players.find(p => p.name === oldName);
+            if (player) {
+                const playerItem = document.querySelector(`[data-name="${oldName}"]`);
+                if (playerItem) {
+                    if (newName) {
+                        player.name = newName;
+                        playerItem.dataset.name = newName;
+                        const nameSpan = playerItem.querySelector('span');
+                        if (nameSpan) nameSpan.classList.add('nickname-changed');
+                        setTimeout(() => { if (nameSpan) nameSpan.classList.remove('nickname-changed'); }, 2000);
+                    }
+                    if (newSkinId !== undefined && newSkinId !== player.skinId) {
+                        player.skinId = newSkinId;
+                        const boatImg = playerItem.querySelector('img');
+                        if (boatImg) {
+                            boatImg.src = `./assets/boats/${newSkinId}/icon.png`;
+                            boatImg.classList.add('skin-changed');
+                            setTimeout(() => boatImg.classList.remove('skin-changed'), 2000);
+                        }
                     }
                 }
+                updatePlayerList();
             }
-            
-            // Remove suitToPlace from its old position (if any)
-            if (previousSectionIdOfSuitToPlace) {
-                placedSuits.delete(previousSectionIdOfSuitToPlace);
-            }
-
-            // Place currentSquare (suitToPlace) in the new targetSection
-            placedSuits.set(targetSectionId, suitToPlace);
-            currentSquare.classList.add('placed');
-            currentSquare.style.position = 'fixed';
-            currentSquare.style.left = `${closestTargetRect.left + (closestTargetRect.width - currentSquare.offsetWidth) / 2}px`;
-            currentSquare.style.top = `${closestTargetRect.top + (closestTargetRect.height - currentSquare.offsetHeight) / 2}px`;
+        },
+        onGameStarting: () => {
+            startGame();
+        },
+        onRoomClosed: () => {
+            resetGameState();
         }
-
-        if (!isPlacedSuccessfully) {
-            resetSquarePosition(currentSquare, originalPosition);
-        }
-
-        boatSections.forEach(section => section.style.opacity = '1');
-        //updateGridVisibility();
-        updateReadyButtonState();
-
-        if(currentSquare) { 
-            currentSquare.style.zIndex = '1';
-            currentSquare.style.opacity = '1';
-            currentSquare.style.transition = 'all 0.3s ease';
-        }
-        isDragging = false;
-        currentSquare = null;
-        originalPosition = null;
     });
+} else {
+    console.warn("networkManager is not defined. Callbacks not set.");
 }
-
-let countdownTimer = null;
-let gameStarting = false;
-const countdownDisplay = document.createElement('div');
-countdownDisplay.id = 'countdown-display';
-countdownDisplay.style.cssText = 'display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 48px; font-weight: bold; color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); z-index: 1000;';
-if (theme==="retro") {
-    countdownDisplay.classList.add("retro");
-    countdownDisplay.style.fontFamily = "blocky, sans-serif";
-}
-document.body.appendChild(countdownDisplay);
-
-function startCountdown() {
-    if (countdownTimer || gameStarting) return;
-    let countdown = 3;
-    countdownDisplay.style.display = 'block';
-    gameStarting = true;
-    fadeBackgroundMusic(0, 3000); // Fade to zero over the countdown duration
-    
-    function updateCountdown() {
-        if (countdown > 0) {
-            countdownDisplay.textContent = countdown;
-            playOneShot(getRandomCountdownSound(), 0.1 * sfxVolume);
-            countdown--;
-            countdownTimer = setTimeout(updateCountdown, 1000);
-        } else {
-            countdownDisplay.textContent = 'GO!';
-            playOneShot(getRandomStartSound(), 0.07 * sfxVolume);
-            
-            // For host, emit game start but don't start yet
-            if (isHost && typeof networkManager !== 'undefined') {
-                const socket = networkManager.getSocket();
-                if (socket && socket.connected) {
-                    socket.emit('gameStart');
-                } else {
-                    console.warn("Socket not connected for game start");
-                    startGame(); // Fallback for offline testing
-                }
-            }
-
-            setTimeout(() => {
-                countdownDisplay.style.display = 'none';
-            }, 1000);
-            countdownTimer = null;
-        }
-    }
-    updateCountdown();
-}
-
-function cancelCountdown() {
-    if (countdownTimer) {
-        clearTimeout(countdownTimer);
-        countdownTimer = null;
-    }
-    gameStarting = false;
-    countdownDisplay.style.display = 'none';
-    fadeBackgroundMusic(currentTrackNominalVolume, 2000); // Restore to full nominal volume over 2 seconds
-}
-
-let gameStarted = false;
-let gameEndTimeout = null;
-const GAME_DURATION = 60000; // 60 seconds
 
 function startGameTimer() {
     if (!isHost || !gameStarted) return;
     
     gameEndTimeout = setTimeout(() => {
-        // End the game
         if (typeof networkManager !== 'undefined') {
             networkManager.updateGameState({ gameEnded: true });
         }
@@ -1206,41 +989,17 @@ function endGame() {
     playOneShot('./assets/audio/victory.mp3', 0.3 * sfxVolume);
 }
 
-function checkAllPlayersReady() {
-    if (players.length < 2) return false; // Need at least 2 players
-    return players.every(player => player.ready);
-}
-
-function startGame() {
+function resetGameState() {
+    players = [];
+    updatePlayerList();
     gameStarting = false;
-    gameStarted = true;
     
-    // Hide UI elements
-    const nicknameInput = document.getElementById('nickname');
-    const readyWrapper = document.getElementById('ready-wrapper');
-    const settingsButton = document.getElementById('settings-button');
-    const settingsDiv = document.getElementById('settings-div');
-
-    if (nicknameInput) nicknameInput.style.display = 'none';
-    if (readyWrapper) readyWrapper.style.display = 'none';
-    if (settingsButton) settingsButton.style.display = 'none';
-    if (settingsDiv) settingsDiv.style.display = 'none';
-
-    // Initialize game display
-    updatePlayerGrid();
-
-    // Start background music and timer
-    if (isHost) {
-        playBackgroundMusic('./assets/audio/game_music.mp3', 0.4, musicVolume);
-        startGameTimer();
-    }
+    document.querySelectorAll('.suit-square').forEach(square => {
+        square.style.pointerEvents = 'auto';
+        square.style.opacity = '1';
+    });
     
-    // Show tap instructions
-    const instructions = document.createElement('div');
-    instructions.className = 'tap-instructions darkable';
-    instructions.textContent = isMobileUser ? 'Tap anywhere to play!' : 'Watch your friends tap!';
-    document.body.appendChild(instructions);
-    setTimeout(() => instructions.remove(), 3000);
+    fadeBackgroundMusic(currentTrackNominalVolume, 2000);
 }
 
 // --- Player Grid Management ---
@@ -1300,7 +1059,7 @@ function showTapEffect(playerId) {
 // Handle tap events
 if (isMobileUser) {
     document.addEventListener('touchstart', () => {
-        if (!isReady || !gameStarted) return;
+        if (!gameStarted) return;
         
         if (typeof networkManager !== 'undefined') {
             networkManager.sendTap();
@@ -1331,12 +1090,3 @@ if (typeof networkManager !== 'undefined') {
 }
 
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        updateReadyButtonState();
-        updateGridVisibility(); // Also update grid on load
-    });
-} else {
-    updateReadyButtonState();
-    updateGridVisibility();
-}

@@ -18,31 +18,25 @@
         <div id="player-list" class="desktop-only darkable themeable">
             <div id="players-container"></div>
         </div>
-        <div id="root" class="root flex column">
-            <div id="sqr">
-                <div class="player-grid"></div>
-            </div>
+        <div id="root" class="root flex column mobile-only">
             <input id="nickname" class="single-line-textarea darkable themeable" type="text" name="nickname-input" placeholder="Nickname" maxlength="20">
             <input id="game-code" class="input-uppercase single-line-textarea darkable themeable" type="search" name="game-code-input" placeholder="Room Code" maxlength="4">
             <button id="join-button" class="darkable themeable" disabled>JOIN</button>
             <div id="error-message"></div>
-            <div id="ready-wrapper" class="ready-wrapper">
-                <div id="ready-button" class="darkable themeable" role="button" tabindex="0" aria-disabled="true" style="display: none;"></div>
-                <p id="ready-text" class="ready-text darkable themeable" style="z-index: 2000; display: none;">Ready</p>
-            </div>
+            <button id="start-game-button" class="darkable themeable" style="display: none;">Everyone's In</button>
             <p id="settings-button" class="mobile-only darkable themeable">SETTINGS</p>
             <div id="settings-div" class="mobile-only darkable themeable">
                 <audio id="settings-open-sfx" src="./audio/paper_slide_in.mp3"></audio>
                 <audio id="settings-close-sfx" src="./audio/paper_slide_out.mp3"></audio>
                 <div class="settings-content">
                     <div class="settings-row">
-                        <p class="darkable" style="position: fixed; margin-top: 12%; left: 26%;">Dark Mode</p>
-                        <label class="toggle" style="position: fixed; margin-top: 12%; left: 63%;">
+                        <p class="darkable" style="position: fixed; margin-top: 12%; left: 22%;">Dark Mode</p>
+                        <label class="toggle" style="position: fixed; margin-top: 12%; left: 67%;">
                             <input type="checkbox" id="dark-mode-toggle" name="btnToggle" />
                             <span id="dark-mode-slider" class="slider themeable"></span>
                         </label>
-						<p class="darkable" style="position: fixed; margin-top: 20%; left: 26%;">Screen Flash</p>
-                        <label class="toggle" style="position: fixed; margin-top: 20%; left: 63%;">
+						<p class="darkable" style="position: fixed; margin-top: 20%; left: 22%;">Reduce Flashing</p>
+                        <label class="toggle" style="position: fixed; margin-top: 20%; left: 67%;">
                             <input type="checkbox" id="dark-mode-toggle" name="btnToggle" />
                             <span id="dark-mode-slider" class="slider themeable"></span>
                         </label>
@@ -71,6 +65,13 @@
                         <h3>Display Settings</h3>
                         <div class="setting-item">
                             <label>Dark Mode</label>
+                            <label class="toggle">
+                                <input type="checkbox" id="dark-mode-toggle-desktop">
+                                <span class="slider themeable"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>Reduce Flashing</label>
                             <label class="toggle">
                                 <input type="checkbox" id="dark-mode-toggle-desktop">
                                 <span class="slider themeable"></span>
